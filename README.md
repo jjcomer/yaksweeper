@@ -88,7 +88,7 @@ You can customize the appearance of Yaksweeper via the `yaksweeper` customizatio
 ```elisp
 M-x customize-group RET yaksweeper RET
 ```
-Available options include changing the characters used for mines, flags, hidden cells, wrong flags, the board cell width, and the colors (faces) of numbers and warnings.
+Available options include changing the characters used for mines, flags, hidden cells, wrong flags, the board cell width, and the colors (faces) of numbers and warnings. Board cells use fixed alignment stops, and selection uses Emacs' cursor instead of styling board glyphs, which keeps the grid text stable while you move and reveal cells.
 
 ## 📄 License
 

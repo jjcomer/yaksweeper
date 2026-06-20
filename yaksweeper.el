@@ -55,7 +55,7 @@
   :type 'string
   :group 'yaksweeper)
 
-(defcustom yaksweeper-cell-width 3
+(defcustom yaksweeper-cell-width 4
   "Minimum display columns reserved for each board cell."
   :type 'integer
   :group 'yaksweeper)
@@ -70,8 +70,9 @@
 (defface yaksweeper-number-8-face '((t :foreground "#696969" :weight bold)) "Face for 8." :group 'yaksweeper)
 (defface yaksweeper-revealed-face '((t :background "#333333")) "Face for revealed empty background." :group 'yaksweeper)
 (defface yaksweeper-selected-face
-  '((t :inherit highlight :weight bold :box (:line-width 1 :color "#FFD166")))
-  "Face for the selected cell."
+  '((t :background "#FFD166" :foreground "#000000"))
+  "Legacy face for selected cells.
+Selection is shown with the cursor to keep emoji glyph rendering stable."
   :group 'yaksweeper)
 (defface yaksweeper-warning-face
   '((t :inherit warning :weight bold))
@@ -326,10 +327,9 @@ the first revealed cell is a zero."
   (intern (format "yaksweeper-number-%d-face" n)))
 
 (defun yaksweeper--format-number (n)
-  "Format number N to fit 2 characters width if Unicode emojis are 2 chars."
-  (let* ((str (number-to-string n))
-         (padded (if (= (length str) 1) (concat " " str) str)))
-    (propertize padded 'face (yaksweeper--get-face-for-number n))))
+  "Format number N."
+  (propertize (number-to-string n)
+              'face (yaksweeper--get-face-for-number n)))
 
 (defun yaksweeper--effective-cell-width ()
   "Return the display columns reserved for one rendered cell."
@@ -339,13 +339,24 @@ the first revealed cell is a zero."
                        yaksweeper-char-mine
                        yaksweeper-char-exploded
                        yaksweeper-char-wrong-flag
-                       " 8"))
+                       "8"))
          (widest (apply #'max (mapcar #'string-width glyphs))))
-    (max yaksweeper-cell-width (1+ widest))))
+    (max yaksweeper-cell-width (+ widest 2))))
 
-(defun yaksweeper--pad-cell (str cell-width)
-  "Pad STR to CELL-WIDTH display columns."
-  (concat str (make-string (max 0 (- cell-width (string-width str))) ?\s)))
+(defun yaksweeper--cell-properties (x y)
+  "Return text properties for the rendered cell at X and Y."
+  (list 'yaksweeper-x x
+        'yaksweeper-y y
+        'help-echo (format "(%d, %d)" x y)))
+
+(defun yaksweeper--insert-cell (str x y cell-width)
+  "Insert cell STR at X and Y, aligning the next cell by CELL-WIDTH."
+  (let ((properties (yaksweeper--cell-properties x y)))
+    (insert (apply #'propertize str properties))
+    (insert (apply #'propertize
+                   " "
+                   'display `(space :align-to ,(* (1+ x) cell-width))
+                   properties))))
 
 (defun yaksweeper--goto-cell (x y)
   "Move point to the rendered cell at X, Y."
@@ -377,16 +388,13 @@ the first revealed cell is a zero."
         (cons start end)))))
 
 (defun yaksweeper--update-selection ()
-  "Move the selection overlay to the cell at point."
+  "Remove stale selection overlays.
+Point and the cursor show the selected cell.  Avoid applying faces to board
+glyphs here because that can change emoji rendering metrics in Emacs."
   (when (derived-mode-p 'yaksweeper-mode)
-    (unless (overlayp yaksweeper--selection-overlay)
-      (setq yaksweeper--selection-overlay (make-overlay (point-min) (point-min)))
-      (overlay-put yaksweeper--selection-overlay 'face 'yaksweeper-selected-face)
-      (overlay-put yaksweeper--selection-overlay 'priority 10))
-    (let ((bounds (yaksweeper--cell-bounds-at-point)))
-      (if bounds
-          (move-overlay yaksweeper--selection-overlay (car bounds) (cdr bounds))
-        (delete-overlay yaksweeper--selection-overlay)))))
+    (when (overlayp yaksweeper--selection-overlay)
+      (delete-overlay yaksweeper--selection-overlay)
+      (setq yaksweeper--selection-overlay nil))))
 
 (defun yaksweeper--render (&optional focus)
   "Render the board to the buffer.
@@ -429,13 +437,8 @@ FOCUS is an optional (X . Y) cell to keep selected after rendering."
                       (if (yaksweeper-cell-flagged cell) yaksweeper-char-flag yaksweeper-char-hidden))
                      ((yaksweeper-cell-has-mine cell) yaksweeper-char-mine)
                      ((= (yaksweeper-cell-neighbor-mines cell) 0) yaksweeper-char-empty)
-                     (t (yaksweeper--format-number (yaksweeper-cell-neighbor-mines cell)))))
-               (cell-str (yaksweeper--pad-cell str cell-width)))
-          (insert (propertize cell-str
-                              'yaksweeper-x x
-                              'yaksweeper-y y
-                              'mouse-face 'highlight
-                              'help-echo (format "(%d, %d)" x y)))))
+                     (t (yaksweeper--format-number (yaksweeper-cell-neighbor-mines cell))))))
+          (yaksweeper--insert-cell str x y cell-width)))
       (insert "\n"))
 
     (when (eq yaksweeper--state 'won)
@@ -553,7 +556,7 @@ FOCUS is an optional (X . Y) cell to keep selected after rendering."
 (define-derived-mode yaksweeper-mode special-mode "Yaksweeper"
   "Major mode for playing Yaksweeper."
   (setq truncate-lines t)
-  (setq cursor-type nil)
+  (setq cursor-type 'box)
   (hl-line-mode -1)
   (add-hook 'post-command-hook #'yaksweeper--update-selection nil t))
 
