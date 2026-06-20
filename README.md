@@ -13,14 +13,16 @@
 ## ✨ Features
 
 - **Transient Menus**: Launch and configure games easily with `M-x yaksweeper`.
-- **Unicode Graphics**: Clean visual indicators using emojis (⬜, ⬛, 🚩, 💣, 💥).
+- **Unicode Graphics**: Clean visual indicators using emojis (⬜, ⬛, 🚩, 💣, 💥, ❌).
 - **Multiple Difficulties**: 
   - Beginner (9x9, 10 mines)
   - Intermediate (16x16, 40 mines)
   - Expert (30x16, 99 mines)
+- **Custom Games & Presets**: Start any valid board size and mine count, optionally saving it for later.
 - **Safe First Reveal**: Your first guess never hits a mine.
+- **Informational Assists**: See flagged mines, remaining safe cells, over-flag warnings, and wrong flags after a loss.
 - **Visible Selection & Controls**: Keyboard selection is highlighted, with controls shown in the game buffer.
-- **Statistics Tracking**: View your game history and times via the Transient menu.
+- **Statistics Tracking**: View overall results, per-board summaries, best times, averages, and recent history.
 - **Mouse & Keyboard Support**: Full support for standard keybindings and mouse chords.
 
 ## 📦 Requirements
@@ -35,7 +37,18 @@ Start the game with:
 M-x yaksweeper
 ```
 
-From the Transient menu, press `b`, `i`, or `e` to start a Beginner, Intermediate, or Expert game.
+From the Transient menu:
+
+| Key | Action |
+|-----|--------|
+| `b` | Start Beginner (9x9, 10 mines) |
+| `i` | Start Intermediate (16x16, 40 mines) |
+| `e` | Start Expert (30x16, 99 mines) |
+| `c` | Start a custom game (`yaksweeper-custom`) |
+| `p` | Start a saved preset (`yaksweeper-start-preset`) |
+| `s` | Show statistics (`yaksweeper-show-stats`) |
+
+`M-x yaksweeper-custom` prompts for width, height, mine count, and an optional preset name. Saved presets are available across sessions through `M-x yaksweeper-start-preset`.
 
 ### Keybindings
 
@@ -53,8 +66,21 @@ When in `yaksweeper-mode`, use the following controls:
 
 ## 📈 Statistics
 
-Yaksweeper tracks your wins, losses, and completion times across all difficulty levels using Emacs' `multisession` variables. 
-You can view your stats from the main menu by pressing `s` (`yaksweeper-show-stats`).
+Yaksweeper tracks wins, losses, completion times, board dimensions, mine counts, and preset names using Emacs' `multisession` variables.
+View your stats from the main menu by pressing `s` (`yaksweeper-show-stats`).
+
+The stats buffer shows:
+
+- Overall games, wins, losses, and win rate.
+- Per-board summaries with games, win rate, best win time, and average win time.
+- Recent game history, newest first.
+
+Older stat records are still supported; they display using their saved difficulty names.
+
+## 🧭 Board Header
+
+The game header shows `Mines: flagged/total`, `Remaining: N`, and elapsed time. `Remaining` is the number of unrevealed safe cells, or `width*height - mines` before the first reveal.
+If you place more flags than the mine count, the mine counter is highlighted as a warning without changing gameplay rules. After a loss, incorrectly flagged non-mine cells display with the wrong-flag marker.
 
 ## 🛠️ Customization
 
@@ -62,4 +88,4 @@ You can customize the appearance of Yaksweeper via the `yaksweeper` customizatio
 ```elisp
 M-x customize-group RET yaksweeper RET
 ```
-Available options include changing the characters used for mines, flags, hidden cells, and the colors (faces) of the numbers.
+Available options include changing the characters used for mines, flags, hidden cells, wrong flags, and the colors (faces) of numbers and warnings.
