@@ -88,4 +88,8 @@ You can customize the appearance of Yaksweeper via the `yaksweeper` customizatio
 ```elisp
 M-x customize-group RET yaksweeper RET
 ```
-Available options include changing the characters used for mines, flags, hidden cells, wrong flags, and the colors (faces) of numbers and warnings.
+Available options include changing the characters used for mines, flags, hidden cells, wrong flags, the board cell width, and the colors (faces) of numbers and warnings.
+
+## 📄 License
+
+Yaksweeper is released under the MIT License. See [LICENSE](LICENSE).

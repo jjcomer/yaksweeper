@@ -1,11 +1,12 @@
 ;;; yaksweeper.el --- Modern Emacs Minesweeper -*- lexical-binding: t -*-
 
-;; Copyright (C) 2026 Free Software Foundation, Inc.
+;; Copyright (C) 2026 Josh Comer
+;; SPDX-License-Identifier: MIT
 ;; Author: Yaksweeper Contributors
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "30.1") (transient "0.3.7"))
 ;; Keywords: games
-;; URL: https://github.com/josh/yaksweeper
+;; URL: https://github.com/jjcomer/yaksweeper
 
 ;;; Commentary:
 ;; A modern Minesweeper implementation for Emacs using Unicode visuals
@@ -52,6 +53,11 @@
 (defcustom yaksweeper-char-wrong-flag "❌"
   "Character used for incorrectly flagged cells after a loss."
   :type 'string
+  :group 'yaksweeper)
+
+(defcustom yaksweeper-cell-width 3
+  "Minimum display columns reserved for each board cell."
+  :type 'integer
   :group 'yaksweeper)
 
 (defface yaksweeper-number-1-face '((t :foreground "#1E90FF" :weight bold)) "Face for 1." :group 'yaksweeper)
@@ -325,6 +331,22 @@ the first revealed cell is a zero."
          (padded (if (= (length str) 1) (concat " " str) str)))
     (propertize padded 'face (yaksweeper--get-face-for-number n))))
 
+(defun yaksweeper--effective-cell-width ()
+  "Return the display columns reserved for one rendered cell."
+  (let* ((glyphs (list yaksweeper-char-hidden
+                       yaksweeper-char-empty
+                       yaksweeper-char-flag
+                       yaksweeper-char-mine
+                       yaksweeper-char-exploded
+                       yaksweeper-char-wrong-flag
+                       " 8"))
+         (widest (apply #'max (mapcar #'string-width glyphs))))
+    (max yaksweeper-cell-width (1+ widest))))
+
+(defun yaksweeper--pad-cell (str cell-width)
+  "Pad STR to CELL-WIDTH display columns."
+  (concat str (make-string (max 0 (- cell-width (string-width str))) ?\s)))
+
 (defun yaksweeper--goto-cell (x y)
   "Move point to the rendered cell at X, Y."
   (let ((pos (point-min))
@@ -374,6 +396,7 @@ FOCUS is an optional (X . Y) cell to keep selected after rendering."
         (time-elapsed (if yaksweeper--start-time
                           (- (float-time) yaksweeper--start-time)
                         0.0))
+        (cell-width (yaksweeper--effective-cell-width))
         (mine-counter (format "Mines: %d/%d"
                               yaksweeper--mines-flagged
                               yaksweeper--mines)))
@@ -406,8 +429,9 @@ FOCUS is an optional (X . Y) cell to keep selected after rendering."
                       (if (yaksweeper-cell-flagged cell) yaksweeper-char-flag yaksweeper-char-hidden))
                      ((yaksweeper-cell-has-mine cell) yaksweeper-char-mine)
                      ((= (yaksweeper-cell-neighbor-mines cell) 0) yaksweeper-char-empty)
-                     (t (yaksweeper--format-number (yaksweeper-cell-neighbor-mines cell))))))
-          (insert (propertize str
+                     (t (yaksweeper--format-number (yaksweeper-cell-neighbor-mines cell)))))
+               (cell-str (yaksweeper--pad-cell str cell-width)))
+          (insert (propertize cell-str
                               'yaksweeper-x x
                               'yaksweeper-y y
                               'mouse-face 'highlight
