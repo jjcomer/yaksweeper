@@ -18,6 +18,8 @@
   - Beginner (9x9, 10 mines)
   - Intermediate (16x16, 40 mines)
   - Expert (30x16, 99 mines)
+- **Safe First Reveal**: Your first guess never hits a mine.
+- **Visible Selection & Controls**: Keyboard selection is highlighted, with controls shown in the game buffer.
 - **Statistics Tracking**: View your game history and times via the Transient menu.
 - **Mouse & Keyboard Support**: Full support for standard keybindings and mouse chords.
 
@@ -41,6 +43,7 @@ When in `yaksweeper-mode`, use the following controls:
 
 | Action | Keyboard | Mouse |
 |--------|----------|-------|
+| **Move Selection** | Arrow keys or `h`, `j`, `k`, `l` | - |
 | **Reveal Cell** | `RET`, `SPC`, or `x` | `mouse-1` (Left Click) |
 | **Flag/Unflag** | `f` or `m` | `mouse-3` (Right Click) |
 | **Chord** (Reveal neighbors) | `c` | `mouse-2` (Middle Click) or `double-mouse-1` |

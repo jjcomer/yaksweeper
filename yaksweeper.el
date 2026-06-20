@@ -34,7 +34,7 @@
   :group 'yaksweeper)
 
 (defcustom yaksweeper-char-flag "🚩"
-  "Character used for flagged cells."
+  "Character used for marked cells."
   :type 'string
   :group 'yaksweeper)
 
@@ -48,15 +48,19 @@
   :type 'string
   :group 'yaksweeper)
 
-(defface yaksweeper-number-1-face '((t :foreground "#1E90FF" :weight bold)) "Face for 1" :group 'yaksweeper)
-(defface yaksweeper-number-2-face '((t :foreground "#32CD32" :weight bold)) "Face for 2" :group 'yaksweeper)
-(defface yaksweeper-number-3-face '((t :foreground "#FF4500" :weight bold)) "Face for 3" :group 'yaksweeper)
-(defface yaksweeper-number-4-face '((t :foreground "#4B0082" :weight bold)) "Face for 4" :group 'yaksweeper)
-(defface yaksweeper-number-5-face '((t :foreground "#800000" :weight bold)) "Face for 5" :group 'yaksweeper)
-(defface yaksweeper-number-6-face '((t :foreground "#00CED1" :weight bold)) "Face for 6" :group 'yaksweeper)
-(defface yaksweeper-number-7-face '((t :foreground "#000000" :weight bold)) "Face for 7" :group 'yaksweeper)
-(defface yaksweeper-number-8-face '((t :foreground "#696969" :weight bold)) "Face for 8" :group 'yaksweeper)
+(defface yaksweeper-number-1-face '((t :foreground "#1E90FF" :weight bold)) "Face for 1." :group 'yaksweeper)
+(defface yaksweeper-number-2-face '((t :foreground "#32CD32" :weight bold)) "Face for 2." :group 'yaksweeper)
+(defface yaksweeper-number-3-face '((t :foreground "#FF4500" :weight bold)) "Face for 3." :group 'yaksweeper)
+(defface yaksweeper-number-4-face '((t :foreground "#4B0082" :weight bold)) "Face for 4." :group 'yaksweeper)
+(defface yaksweeper-number-5-face '((t :foreground "#800000" :weight bold)) "Face for 5." :group 'yaksweeper)
+(defface yaksweeper-number-6-face '((t :foreground "#00CED1" :weight bold)) "Face for 6." :group 'yaksweeper)
+(defface yaksweeper-number-7-face '((t :foreground "#000000" :weight bold)) "Face for 7." :group 'yaksweeper)
+(defface yaksweeper-number-8-face '((t :foreground "#696969" :weight bold)) "Face for 8." :group 'yaksweeper)
 (defface yaksweeper-revealed-face '((t :background "#333333")) "Face for revealed empty background." :group 'yaksweeper)
+(defface yaksweeper-selected-face
+  '((t :inherit highlight :weight bold :box (:line-width 1 :color "#FFD166")))
+  "Face for the selected cell."
+  :group 'yaksweeper)
 
 ;;; State
 
@@ -71,14 +75,16 @@
 (defvar-local yaksweeper--height 0 "Board height.")
 (defvar-local yaksweeper--mines 0 "Total mines.")
 (defvar-local yaksweeper--difficulty 'beginner "Current difficulty level.")
-(defvar-local yaksweeper--state 'playing "Game state: 'playing, 'won, 'lost.")
+(defvar-local yaksweeper--state 'playing "Game state: playing, won, or lost.")
 (defvar-local yaksweeper--first-click t "Is this the first click?")
 (defvar-local yaksweeper--start-time nil "Time the game started.")
 (defvar-local yaksweeper--mines-flagged 0 "Number of flagged mines.")
+(defvar-local yaksweeper--selection-overlay nil "Overlay for the selected cell.")
 
 (define-multisession-variable yaksweeper-stats nil
   "Statistics for Yaksweeper.
-Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...\")")
+Format: list of plists, e.g. (:difficulty beginner :time 45.2
+:won t :date \"...\").")
 
 ;;; Logic
 
@@ -113,18 +119,44 @@ Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...
               (push (cons nx ny) neighbors))))))
     neighbors))
 
+(defun yaksweeper--validate-game (width height mines)
+  "Signal an error unless WIDTH, HEIGHT, and MINES can make a game."
+  (unless (and (integerp width) (> width 0))
+    (user-error "Width must be a positive integer"))
+  (unless (and (integerp height) (> height 0))
+    (user-error "Height must be a positive integer"))
+  (unless (and (integerp mines) (>= mines 0))
+    (user-error "Mines must be a non-negative integer"))
+  (unless (< mines (* width height))
+    (user-error "Mines must leave at least one safe cell")))
+
 (defun yaksweeper--place-mines (safe-x safe-y)
-  "Place mines randomly, ensuring the first click at SAFE-X, SAFE-Y is a 0."
-  (let ((safe-coords (cons (cons safe-x safe-y) (yaksweeper--neighbors safe-x safe-y)))
-        (placed 0))
-    (while (< placed yaksweeper--mines)
-      (let* ((rx (random yaksweeper--width))
-             (ry (random yaksweeper--height))
-             (cell (yaksweeper--get-cell rx ry)))
-        (unless (or (yaksweeper-cell-has-mine cell)
-                    (member (cons rx ry) safe-coords))
-          (setf (yaksweeper-cell-has-mine cell) t)
-          (cl-incf placed))))
+  "Place mines randomly without mining the first click at SAFE-X, SAFE-Y.
+When the board has enough space, also keep SAFE-X, SAFE-Y's neighbors clear so
+the first revealed cell is a zero."
+  (let* ((first-click (cons safe-x safe-y))
+         (zero-safe-coords (cons first-click (yaksweeper--neighbors safe-x safe-y)))
+         (zero-safe-slots (- (* yaksweeper--width yaksweeper--height)
+                             (length zero-safe-coords)))
+         (safe-coords (if (<= yaksweeper--mines zero-safe-slots)
+                          zero-safe-coords
+                        (list first-click)))
+         (candidates nil))
+    (dotimes (y yaksweeper--height)
+      (dotimes (x yaksweeper--width)
+        (let ((coord (cons x y)))
+          (unless (member coord safe-coords)
+            (push coord candidates)))))
+    (unless (<= yaksweeper--mines (length candidates))
+      (user-error "Not enough cells to place %d mines safely" yaksweeper--mines))
+    (dotimes (_ yaksweeper--mines)
+      (let* ((index (random (length candidates)))
+             (coord (nth index candidates))
+             (cell (yaksweeper--get-cell (car coord) (cdr coord))))
+        (setf (yaksweeper-cell-has-mine cell) t)
+        (setq candidates
+              (append (cl-subseq candidates 0 index)
+                      (nthcdr (1+ index) candidates)))))
     ;; Calculate neighbors
     (dotimes (y yaksweeper--height)
       (dotimes (x yaksweeper--width)
@@ -172,13 +204,12 @@ Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...
 (defun yaksweeper--do-reveal (x y)
   "Interactive logic to reveal X, Y."
   (when (eq yaksweeper--state 'playing)
-    (when yaksweeper--first-click
-      (setq yaksweeper--first-click nil
-            yaksweeper--start-time (float-time))
-      (yaksweeper--place-mines x y))
-    
     (let ((cell (yaksweeper--get-cell x y)))
       (when (and cell (not (yaksweeper-cell-flagged cell)))
+        (when yaksweeper--first-click
+          (setq yaksweeper--first-click nil
+                yaksweeper--start-time (float-time))
+          (yaksweeper--place-mines x y))
         (if (yaksweeper-cell-has-mine cell)
             (progn
               ;; Game over
@@ -189,7 +220,7 @@ Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...
               (message "Boom! You hit a mine."))
           (yaksweeper--reveal-cell x y)
           (yaksweeper--check-win))))
-    (yaksweeper--render)))
+    (yaksweeper--render (cons x y))))
 
 (defun yaksweeper--do-flag (x y)
   "Toggle flag at X, Y."
@@ -200,7 +231,7 @@ Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...
         (if (yaksweeper-cell-flagged cell)
             (cl-incf yaksweeper--mines-flagged)
           (cl-decf yaksweeper--mines-flagged))))
-    (yaksweeper--render)))
+    (yaksweeper--render (cons x y))))
 
 (defun yaksweeper--do-chord (x y)
   "Chord at X, Y (reveal neighbors if flags match)."
@@ -215,7 +246,7 @@ Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...
             ;; Reveal all non-flagged neighbors
             (dolist (n (yaksweeper--neighbors x y))
               (yaksweeper--do-reveal (car n) (cdr n)))))))
-    (yaksweeper--render)))
+    (yaksweeper--render (cons x y))))
 
 ;;; Display
 
@@ -229,19 +260,65 @@ Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...
          (padded (if (= (length str) 1) (concat " " str) str)))
     (propertize padded 'face (yaksweeper--get-face-for-number n))))
 
-(defun yaksweeper--render ()
-  "Render the board to the buffer."
+(defun yaksweeper--goto-cell (x y)
+  "Move point to the rendered cell at X, Y."
+  (let ((pos (point-min))
+        found)
+    (while (and (not found) (< pos (point-max)))
+      (if (and (equal (get-text-property pos 'yaksweeper-x) x)
+               (equal (get-text-property pos 'yaksweeper-y) y))
+          (setq found pos)
+        (setq pos (next-single-property-change
+                   pos 'yaksweeper-x nil (point-max)))))
+    (when found
+      (goto-char found)
+      t)))
+
+(defun yaksweeper--cell-bounds-at-point (&optional pos)
+  "Return the text bounds of the cell at POS, or nil."
+  (let* ((p (or pos (point)))
+         (coords (yaksweeper--get-coords-at-point p)))
+    (when coords
+      (let ((start p)
+            (end p))
+        (while (and (> start (point-min))
+                    (equal coords (yaksweeper--get-coords-at-point (1- start))))
+          (cl-decf start))
+        (while (and (< end (point-max))
+                    (equal coords (yaksweeper--get-coords-at-point end)))
+          (cl-incf end))
+        (cons start end)))))
+
+(defun yaksweeper--update-selection ()
+  "Move the selection overlay to the cell at point."
+  (when (derived-mode-p 'yaksweeper-mode)
+    (unless (overlayp yaksweeper--selection-overlay)
+      (setq yaksweeper--selection-overlay (make-overlay (point-min) (point-min)))
+      (overlay-put yaksweeper--selection-overlay 'face 'yaksweeper-selected-face)
+      (overlay-put yaksweeper--selection-overlay 'priority 10))
+    (let ((bounds (yaksweeper--cell-bounds-at-point)))
+      (if bounds
+          (move-overlay yaksweeper--selection-overlay (car bounds) (cdr bounds))
+        (delete-overlay yaksweeper--selection-overlay)))))
+
+(defun yaksweeper--render (&optional focus)
+  "Render the board to the buffer.
+FOCUS is an optional (X . Y) cell to keep selected after rendering."
   (let ((inhibit-read-only t)
+        (focus (or focus (yaksweeper--get-coords-at-point) (cons 0 0)))
         (time-elapsed (if yaksweeper--start-time
                           (- (float-time) yaksweeper--start-time)
                         0.0)))
     (erase-buffer)
     ;; Header
-    (insert (propertize (format "Yaksweeper [%s] | Mines: %d/%d | Time: %d\n\n"
+    (insert (propertize (format "Yaksweeper [%s] | Mines: %d/%d | Time: %d\n"
                                 (capitalize (symbol-name yaksweeper--difficulty))
                                 yaksweeper--mines-flagged yaksweeper--mines
                                 (floor time-elapsed))
                         'face 'bold))
+    (insert (propertize
+             "Controls: arrows/hjkl move | RET/SPC/x reveal | f/m flag | c chord | r restart | q quit\n\n"
+             'face 'shadow))
     ;; Board
     (dotimes (y yaksweeper--height)
       (dotimes (x yaksweeper--width)
@@ -259,12 +336,14 @@ Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...
                               'mouse-face 'highlight
                               'help-echo (format "(%d, %d)" x y)))))
       (insert "\n"))
-    
+
     (when (eq yaksweeper--state 'won)
       (insert (propertize "\n\n*** YOU WIN! ***\n" 'face '(bold :foreground "green"))))
     (when (eq yaksweeper--state 'lost)
       (insert (propertize "\n\n*** GAME OVER ***\n" 'face '(bold :foreground "red"))))
-    (goto-char (point-min))))
+    (or (yaksweeper--goto-cell (car focus) (cdr focus))
+        (yaksweeper--goto-cell 0 0))
+    (yaksweeper--update-selection)))
 
 ;;; Interaction
 
@@ -298,20 +377,48 @@ Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...
     (when coords
       (yaksweeper--do-chord (car coords) (cdr coords)))))
 
+(defun yaksweeper--move (dx dy)
+  "Move the selected cell by DX and DY."
+  (let* ((coords (or (yaksweeper--get-coords-at-point) (cons 0 0)))
+         (x (max 0 (min (1- yaksweeper--width) (+ (car coords) dx))))
+         (y (max 0 (min (1- yaksweeper--height) (+ (cdr coords) dy)))))
+    (when (yaksweeper--goto-cell x y)
+      (yaksweeper--update-selection))))
+
+(defun yaksweeper-move-left ()
+  "Move the selected cell left."
+  (interactive)
+  (yaksweeper--move -1 0))
+
+(defun yaksweeper-move-right ()
+  "Move the selected cell right."
+  (interactive)
+  (yaksweeper--move 1 0))
+
+(defun yaksweeper-move-up ()
+  "Move the selected cell up."
+  (interactive)
+  (yaksweeper--move 0 -1))
+
+(defun yaksweeper-move-down ()
+  "Move the selected cell down."
+  (interactive)
+  (yaksweeper--move 0 1))
+
 (defun yaksweeper-click (event)
-  "Handle mouse click."
+  "Handle mouse EVENT as a reveal click."
   (interactive "e")
   (mouse-set-point event)
   (yaksweeper-reveal-at-point))
 
 (defun yaksweeper-flag-click (event)
-  "Handle mouse right click."
+  "Handle mouse EVENT as a flag click."
   (interactive "e")
   (mouse-set-point event)
   (yaksweeper-flag-at-point))
 
 (defun yaksweeper-chord-click (event)
-  "Handle mouse middle click or double click."
+  "Handle mouse EVENT as a chord click."
   (interactive "e")
   (mouse-set-point event)
   (yaksweeper-chord-at-point))
@@ -327,6 +434,14 @@ Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...
     (define-key map (kbd "m") #'yaksweeper-flag-at-point)
     (define-key map (kbd "c") #'yaksweeper-chord-at-point)
     (define-key map (kbd "r") #'yaksweeper-restart)
+    (define-key map (kbd "<left>") #'yaksweeper-move-left)
+    (define-key map (kbd "<right>") #'yaksweeper-move-right)
+    (define-key map (kbd "<up>") #'yaksweeper-move-up)
+    (define-key map (kbd "<down>") #'yaksweeper-move-down)
+    (define-key map (kbd "h") #'yaksweeper-move-left)
+    (define-key map (kbd "l") #'yaksweeper-move-right)
+    (define-key map (kbd "k") #'yaksweeper-move-up)
+    (define-key map (kbd "j") #'yaksweeper-move-down)
     (define-key map [mouse-1] #'yaksweeper-click)
     (define-key map [mouse-3] #'yaksweeper-flag-click)
     (define-key map [mouse-2] #'yaksweeper-chord-click)
@@ -338,12 +453,14 @@ Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...
   "Major mode for playing Yaksweeper."
   (setq truncate-lines t)
   (setq cursor-type nil)
-  (hl-line-mode -1))
+  (hl-line-mode -1)
+  (add-hook 'post-command-hook #'yaksweeper--update-selection nil t))
 
 ;;; Game Launchers
 
 (defun yaksweeper--init-game (width height mines difficulty)
-  "Initialize the game buffer."
+  "Initialize the game buffer with WIDTH, HEIGHT, MINES, and DIFFICULTY."
+  (yaksweeper--validate-game width height mines)
   (switch-to-buffer (get-buffer-create "*Yaksweeper*"))
   (yaksweeper-mode)
   (setq yaksweeper--width width
@@ -357,23 +474,27 @@ Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...
         yaksweeper--mines-flagged 0)
   (dotimes (i (length yaksweeper--board))
     (aset yaksweeper--board i (make-yaksweeper-cell)))
-  (yaksweeper--render))
+  (yaksweeper--render (cons 0 0)))
 
+;;;###autoload
 (defun yaksweeper-restart ()
   "Restart current game."
   (interactive)
   (yaksweeper--init-game yaksweeper--width yaksweeper--height yaksweeper--mines yaksweeper--difficulty))
 
+;;;###autoload
 (defun yaksweeper-beginner ()
   "Start a beginner game."
   (interactive)
   (yaksweeper--init-game 9 9 10 'beginner))
 
+;;;###autoload
 (defun yaksweeper-intermediate ()
   "Start an intermediate game."
   (interactive)
   (yaksweeper--init-game 16 16 40 'intermediate))
 
+;;;###autoload
 (defun yaksweeper-expert ()
   "Start an expert game."
   (interactive)
@@ -382,15 +503,16 @@ Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...
 ;;; Stats
 
 (defun yaksweeper--record-stats (won)
-  "Record game stats."
+  "Record game stats, marking the game as won if WON is non-nil."
   (let ((time (- (float-time) yaksweeper--start-time)))
-    (setq yaksweeper-stats
+    (setf (multisession-value yaksweeper-stats)
           (cons (list :difficulty yaksweeper--difficulty
                       :time time
                       :won won
                       :date (format-time-string "%Y-%m-%d %H:%M:%S"))
                 (multisession-value yaksweeper-stats)))))
 
+;;;###autoload
 (defun yaksweeper-show-stats ()
   "Show Yaksweeper statistics."
   (interactive)
@@ -412,6 +534,7 @@ Format: list of plists, e.g. (:difficulty beginner :time 45.2 :won t :date \"...
 
 ;;; Menus
 
+;;;###autoload
 (transient-define-prefix yaksweeper ()
   "Play Yaksweeper."
   ["Start Game"
