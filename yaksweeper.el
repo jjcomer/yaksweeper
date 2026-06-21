@@ -60,6 +60,21 @@
   :type 'integer
   :group 'yaksweeper)
 
+(defcustom yaksweeper-max-width 60
+  "Maximum custom board width."
+  :type 'integer
+  :group 'yaksweeper)
+
+(defcustom yaksweeper-max-height 40
+  "Maximum custom board height."
+  :type 'integer
+  :group 'yaksweeper)
+
+(defcustom yaksweeper-max-cells 2400
+  "Maximum custom board cell count."
+  :type 'integer
+  :group 'yaksweeper)
+
 (defface yaksweeper-number-1-face '((t :foreground "#1E90FF" :weight bold)) "Face for 1." :group 'yaksweeper)
 (defface yaksweeper-number-2-face '((t :foreground "#32CD32" :weight bold)) "Face for 2." :group 'yaksweeper)
 (defface yaksweeper-number-3-face '((t :foreground "#FF4500" :weight bold)) "Face for 3." :group 'yaksweeper)
@@ -69,11 +84,6 @@
 (defface yaksweeper-number-7-face '((t :foreground "#000000" :weight bold)) "Face for 7." :group 'yaksweeper)
 (defface yaksweeper-number-8-face '((t :foreground "#696969" :weight bold)) "Face for 8." :group 'yaksweeper)
 (defface yaksweeper-revealed-face '((t :background "#333333")) "Face for revealed empty background." :group 'yaksweeper)
-(defface yaksweeper-selected-face
-  '((t :background "#FFD166" :foreground "#000000"))
-  "Legacy face for selected cells.
-Selection is shown with the cursor to keep emoji glyph rendering stable."
-  :group 'yaksweeper)
 (defface yaksweeper-warning-face
   '((t :inherit warning :weight bold))
   "Face for warning text, such as too many flags."
@@ -97,7 +107,6 @@ Selection is shown with the cursor to keep emoji glyph rendering stable."
 (defvar-local yaksweeper--first-click t "Is this the first click?")
 (defvar-local yaksweeper--start-time nil "Time the game started.")
 (defvar-local yaksweeper--mines-flagged 0 "Number of flagged mines.")
-(defvar-local yaksweeper--selection-overlay nil "Overlay for the selected cell.")
 
 (define-multisession-variable yaksweeper-stats nil
   "Statistics for Yaksweeper.
@@ -113,11 +122,6 @@ Format: list of plists, e.g. (:name \"Tiny\" :width 6 :height 6 :mines 6).")
 (defun yaksweeper--index (x y)
   "Convert X and Y coordinates to an array index."
   (+ x (* y yaksweeper--width)))
-
-(defun yaksweeper--coords (index)
-  "Convert INDEX back to (X . Y) coordinates."
-  (cons (% index yaksweeper--width)
-        (/ index yaksweeper--width)))
 
 (defun yaksweeper--valid-p (x y)
   "Return t if X and Y are within the board."
@@ -149,6 +153,12 @@ Format: list of plists, e.g. (:name \"Tiny\" :width 6 :height 6 :mines 6).")
     (user-error "Height must be a positive integer"))
   (unless (and (integerp mines) (>= mines 0))
     (user-error "Mines must be a non-negative integer"))
+  (unless (<= width yaksweeper-max-width)
+    (user-error "Width must be at most %d" yaksweeper-max-width))
+  (unless (<= height yaksweeper-max-height)
+    (user-error "Height must be at most %d" yaksweeper-max-height))
+  (unless (<= (* width height) yaksweeper-max-cells)
+    (user-error "Board must have at most %d cells" yaksweeper-max-cells))
   (unless (< mines (* width height))
     (user-error "Mines must leave at least one safe cell")))
 
@@ -286,8 +296,8 @@ the first revealed cell is a zero."
             (progn
               ;; Game over
               (setq yaksweeper--state 'lost)
-              (setf (yaksweeper-cell-revealed cell) 'exploded)
               (yaksweeper--reveal-all)
+              (setf (yaksweeper-cell-revealed cell) 'exploded)
               (yaksweeper--record-stats nil)
               (message "Boom! You hit a mine."))
           (yaksweeper--reveal-cell x y)
@@ -372,30 +382,6 @@ the first revealed cell is a zero."
       (goto-char found)
       t)))
 
-(defun yaksweeper--cell-bounds-at-point (&optional pos)
-  "Return the text bounds of the cell at POS, or nil."
-  (let* ((p (or pos (point)))
-         (coords (yaksweeper--get-coords-at-point p)))
-    (when coords
-      (let ((start p)
-            (end p))
-        (while (and (> start (point-min))
-                    (equal coords (yaksweeper--get-coords-at-point (1- start))))
-          (cl-decf start))
-        (while (and (< end (point-max))
-                    (equal coords (yaksweeper--get-coords-at-point end)))
-          (cl-incf end))
-        (cons start end)))))
-
-(defun yaksweeper--update-selection ()
-  "Remove stale selection overlays.
-Point and the cursor show the selected cell.  Avoid applying faces to board
-glyphs here because that can change emoji rendering metrics in Emacs."
-  (when (derived-mode-p 'yaksweeper-mode)
-    (when (overlayp yaksweeper--selection-overlay)
-      (delete-overlay yaksweeper--selection-overlay)
-      (setq yaksweeper--selection-overlay nil))))
-
 (defun yaksweeper--render (&optional focus)
   "Render the board to the buffer.
 FOCUS is an optional (X . Y) cell to keep selected after rendering."
@@ -446,8 +432,7 @@ FOCUS is an optional (X . Y) cell to keep selected after rendering."
     (when (eq yaksweeper--state 'lost)
       (insert (propertize "\n\n*** GAME OVER ***\n" 'face '(bold :foreground "red"))))
     (or (yaksweeper--goto-cell (car focus) (cdr focus))
-        (yaksweeper--goto-cell 0 0))
-    (yaksweeper--update-selection)))
+        (yaksweeper--goto-cell 0 0))))
 
 ;;; Interaction
 
@@ -486,8 +471,7 @@ FOCUS is an optional (X . Y) cell to keep selected after rendering."
   (let* ((coords (or (yaksweeper--get-coords-at-point) (cons 0 0)))
          (x (max 0 (min (1- yaksweeper--width) (+ (car coords) dx))))
          (y (max 0 (min (1- yaksweeper--height) (+ (cdr coords) dy)))))
-    (when (yaksweeper--goto-cell x y)
-      (yaksweeper--update-selection))))
+    (yaksweeper--goto-cell x y)))
 
 (defun yaksweeper-move-left ()
   "Move the selected cell left."
@@ -557,8 +541,7 @@ FOCUS is an optional (X . Y) cell to keep selected after rendering."
   "Major mode for playing Yaksweeper."
   (setq truncate-lines t)
   (setq cursor-type 'box)
-  (hl-line-mode -1)
-  (add-hook 'post-command-hook #'yaksweeper--update-selection nil t))
+  (hl-line-mode -1))
 
 ;;; Game Launchers
 
@@ -788,11 +771,12 @@ When PRESET-NAME is non-empty, save these settings as a reusable preset."
   (interactive)
   (let ((buf (get-buffer-create "*Yaksweeper Stats*")))
     (with-current-buffer buf
-      (erase-buffer)
-      (insert "Yaksweeper Statistics\n=====================\n\n")
-      (if (not (multisession-value yaksweeper-stats))
-          (insert "No games played yet.\n")
-        (yaksweeper--insert-stats-dashboard (multisession-value yaksweeper-stats)))
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert "Yaksweeper Statistics\n=====================\n\n")
+        (if (not (multisession-value yaksweeper-stats))
+            (insert "No games played yet.\n")
+          (yaksweeper--insert-stats-dashboard (multisession-value yaksweeper-stats))))
       (special-mode)
       (goto-char (point-min)))
     (display-buffer buf)))

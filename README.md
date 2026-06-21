@@ -90,6 +90,17 @@ M-x customize-group RET yaksweeper RET
 ```
 Available options include changing the characters used for mines, flags, hidden cells, wrong flags, the board cell width, and the colors (faces) of numbers and warnings. Board cells use fixed alignment stops, and selection uses Emacs' cursor instead of styling board glyphs, which keeps the grid text stable while you move and reveal cells.
 
+Custom board sizes are capped by `yaksweeper-max-width`, `yaksweeper-max-height`, and `yaksweeper-max-cells` to avoid accidentally creating a board large enough to hang Emacs. Raise those values through the customization group if you intentionally want larger games.
+
+## 🧪 Development
+
+Run the project checks with:
+```sh
+make check
+```
+
+This byte-compiles `yaksweeper.el` with warnings as errors, runs Checkdoc, and executes the ERT suite.
+
 ## 📄 License
 
 Yaksweeper is released under the MIT License. See [LICENSE](LICENSE).
